@@ -111,6 +111,10 @@ public class AuditEvent {
         this.createdAt = createdAt;
     }
 
+    public void setId(Long id) {
+        this.id = id;
+    }
+
     public boolean isArchived() {
         return archived;
     }
