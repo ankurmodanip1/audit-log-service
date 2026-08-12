@@ -4,7 +4,9 @@
 
 ## Overview
 
-This project implements a tamper-evident audit log service using Java 17, Spring Boot, PostgreSQL, and SHA-256 hash chaining.
+This project implements a tamper-evident audit log service using Java 17, Spring Boot, H2 Database, and SHA-256 hash chaining.
+
+The current implementation uses H2 for rapid local development and testing. The persistence layer is designed to support migration to PostgreSQL with minimal configuration changes.
 
 The service records audit events in append-only format and exposes APIs to create, search, and verify audit records.
 
@@ -15,7 +17,7 @@ Components:
 - REST Controller
 - Audit Event Service
 - Hash Service
-- PostgreSQL Database
+- H2 Database (development) / PostgreSQL (production)
 - Spring Data JPA Repository
 
 ## Hash Chain Design
@@ -47,7 +49,10 @@ GET /audit/verify
 
 ## Run Locally
 
-Create PostgreSQL database:
+### Start Application
 
-```sql
-CREATE DATABASE auditdb;
+```bash
+mvn spring-boot:run
+
+# Open the H2 console at: http://localhost:8080/h2-console
+```

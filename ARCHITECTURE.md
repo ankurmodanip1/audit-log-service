@@ -1,7 +1,9 @@
 # Audit Log Service Architecture
 
 ## Overview
-Design of a Spring Boot-based tamper-evident audit log service with PostgreSQL persistence, SHA-256 hash chaining, append-only storage, verification APIs, and paginated event queries.
+Design of a Spring Boot-based tamper-evident audit log service with H2 persistence for local development, SHA-256 hash chaining, append-only storage, verification APIs, and paginated event queries.
+
+The persistence layer is database-agnostic and can be migrated to PostgreSQL for production deployment with minimal configuration changes.
 
 Goals:
 - Persist append-only audit records.
@@ -21,7 +23,8 @@ Goals:
 2. Service Layer
    - Business rules for audit creation, chain hash computation, and verification.
 3. Persistence Layer
-   - Spring Data JPA repository for PostgreSQL.
+   - Spring Data JPA repository for H2 Database.
+   - The repository layer remains compatible with PostgreSQL through JPA abstraction.
    - Append-only event storage.
 4. Hashing / Verification Layer
    - SHA-256 chain computation.
@@ -35,8 +38,7 @@ Goals:
 - `AuditEventController`
   - `POST /api/audit/events`
   - `GET /api/audit/events`
-  - `GET /api/audit/events/{eventId}`
-  - `GET /api/audit/events/{eventId}/verify`
+  - `GET /api/audit/verify`
   - `GET /api/audit/events/verify-chain`
 - `AuditEventService`
   - `createEvent(CreateAuditEventRequest)`
@@ -97,8 +99,8 @@ Behavior:
 
 ### Persistence Layer
 
-#### `AuditEventRepository`
-- Persist audit events into PostgreSQL.
+-#### `AuditEventRepository`
+- Persist audit events into H2 (development) or any supported RDBMS via JPA.
 - Support filter queries by event fields and date range.
 - Support paginated retrieval using `Pageable`.
 - Retrieve the latest event to continue the hash chain.
@@ -128,13 +130,18 @@ Verification steps:
 Responsibilities:
 - Enforce append-only behavior by disallowing updates and deletes from the service API.
 - Restrict database access to the service role for insert/select only.
-- Protect APIs with authentication (JWT/OAuth2) and TLS.
 - Enable monitoring, logging, and audit trail retention policies.
 
 Operational controls:
-- Database trigger to block `UPDATE`/`DELETE` on `audit_event`.
+- Database trigger to block `UPDATE`/`DELETE` on `audit_event` (production).
 - Separate read-only role for query/reporting.
-- Backup and retention strategy for PostgreSQL.
+- Backup and retention strategy appropriate to the deployment database (H2 for local dev, PostgreSQL for production).
+
+Future Enhancements:
+- JWT Authentication
+- Role-based access control
+- TLS termination
+- API Gateway integration
 
 ---
 
@@ -142,18 +149,18 @@ Operational controls:
 
 ### Table: `audit_event`
 
-Columns:
-- `id` UUID PRIMARY KEY DEFAULT gen_random_uuid()
-- `created_at` TIMESTAMP WITH TIME ZONE NOT NULL
+Columns (H2 development-friendly types):
+- `id` UUID PRIMARY KEY DEFAULT RANDOM_UUID()
+- `created_at` TIMESTAMP NOT NULL
 - `event_type` VARCHAR(128) NOT NULL
 - `actor_id` VARCHAR(256) NOT NULL
 - `resource_type` VARCHAR(128) NOT NULL
 - `resource_id` VARCHAR(256) NOT NULL
-- `payload` JSONB NOT NULL
-- `timestamp` TIMESTAMP WITH TIME ZONE NOT NULL
+- `payload` CLOB NOT NULL
+- `timestamp` TIMESTAMP NOT NULL
 - `previous_hash` CHAR(64) NOT NULL
 - `record_hash` CHAR(64) NOT NULL
-- `metadata` JSONB NULL
+- `metadata` CLOB NULL
 - `version` BIGINT NOT NULL DEFAULT 0
 
 Field reference:
@@ -166,11 +173,11 @@ Field reference:
 | `actor_id` | `VARCHAR(256)` | Actor who caused the event | Yes |
 | `resource_type` | `VARCHAR(128)` | Type of resource affected | Yes |
 | `resource_id` | `VARCHAR(256)` | Identifier of affected resource | Yes |
-| `payload` | `JSONB` | Structured event details | Yes |
+| `payload` | `CLOB` | Structured event details (JSON as text) | Yes |
 | `timestamp` | `TIMESTAMP WITH TIME ZONE` | Event occurrence time | Yes |
 | `previous_hash` | `CHAR(64)` | SHA-256 hash of previous record | Yes |
 | `record_hash` | `CHAR(64)` | SHA-256 hash for this record | Yes |
-| `metadata` | `JSONB` | Optional tracing or context | No |
+| `metadata` | `CLOB` | Optional tracing or context (JSON as text) | No |
 | `version` | `BIGINT` | Optimistic concurrency / schema evolution | Yes |
 
 Indexes:
@@ -184,18 +191,6 @@ Constraints:
 - Do not allow `UPDATE` or `DELETE` in regular operations.
 - Maintain chain integrity by computing hash values in the application.
 
-Append-only enforcement example:
-```sql
-CREATE FUNCTION audit_event_prevent_modification() RETURNS trigger AS $$
-BEGIN
-  RAISE EXCEPTION 'Audit records are append-only and cannot be modified or deleted';
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER audit_event_no_mutation
-BEFORE UPDATE OR DELETE ON audit_event
-FOR EACH ROW EXECUTE FUNCTION audit_event_prevent_modification();
-```
 
 Genesis chain initialization:
 - Use a fixed genesis hash constant for the first record, such as `000...000`.
