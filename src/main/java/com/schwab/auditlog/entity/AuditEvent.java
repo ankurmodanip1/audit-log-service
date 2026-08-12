@@ -22,6 +22,11 @@ public class AuditEvent {
     @Column(columnDefinition = "TEXT")
     private String payload;
 
+    private String payloadHash;
+
+    @Column(columnDefinition = "TEXT")
+    private String redactedFields;
+
     private Instant eventTimestamp;
 
     private String currentHash;
@@ -77,6 +82,22 @@ public class AuditEvent {
 
     public void setPayload(String payload) {
         this.payload = payload;
+    }
+
+    public String getPayloadHash() {
+        return payloadHash;
+    }
+
+    public void setPayloadHash(String payloadHash) {
+        this.payloadHash = payloadHash;
+    }
+
+    public String getRedactedFields() {
+        return redactedFields;
+    }
+
+    public void setRedactedFields(String redactedFields) {
+        this.redactedFields = redactedFields;
     }
 
     public Instant getEventTimestamp() {

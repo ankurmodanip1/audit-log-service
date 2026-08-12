@@ -3,7 +3,9 @@ package com.schwab.auditlog.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.schwab.auditlog.dto.AuditEventResponse;
+import com.schwab.auditlog.dto.AuditExportBundle;
 import com.schwab.auditlog.dto.CreateAuditEventRequest;
+import com.schwab.auditlog.dto.RedactRequest;
 import com.schwab.auditlog.dto.VerifyResponse;
 import com.schwab.auditlog.service.AuditEventService;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -44,13 +47,58 @@ class AuditEventControllerTest {
                     "{\"ipAddress\":\"10.10.10.10\",\"status\":\"SUCCESS\"}",
                     request.getTimestamp(),
                     "computed-hash",
-                    "GENESIS"
+                    "GENESIS",
+                    List.of()
             );
         }
 
         @Override
         public VerifyResponse verifyChain() {
             return new VerifyResponse(true, null, "Hash chain is valid");
+        }
+
+        @Override
+        public AuditEventResponse redactEvent(Long id, RedactRequest request) {
+            return new AuditEventResponse(
+                    id,
+                    "USER_LOGIN",
+                    "user-101",
+                    "ACCOUNT",
+                    "ACC-001",
+                    "{\"ipAddress\":\"[REDACTED]\",\"status\":\"SUCCESS\"}",
+                    Instant.parse("2026-08-12T10:00:00Z"),
+                    "computed-hash",
+                    "GENESIS",
+                    List.of("ipAddress")
+            );
+        }
+
+        @Override
+        public AuditEventResponse archiveEvent(Long id) {
+            return new AuditEventResponse(
+                    id,
+                    "USER_LOGIN",
+                    "user-101",
+                    "ACCOUNT",
+                    "ACC-001",
+                    "{\"ipAddress\":\"10.10.10.10\",\"status\":\"SUCCESS\"}",
+                    Instant.parse("2026-08-12T10:00:00Z"),
+                    "computed-hash",
+                    "GENESIS",
+                    List.of()
+            );
+        }
+
+        @Override
+        public AuditExportBundle exportByActor(String actorId) {
+            CreateAuditEventRequest request = new CreateAuditEventRequest();
+            request.setEventType("USER_LOGIN");
+            request.setActorId("user-101");
+            request.setResourceType("ACCOUNT");
+            request.setResourceId("ACC-001");
+            request.setPayload(Map.of("ipAddress", "10.10.10.10", "status", "SUCCESS"));
+            request.setTimestamp(Instant.parse("2026-08-12T10:00:00Z"));
+            return new AuditExportBundle(actorId, null, "bundle-hash", List.of(createEvent(request)));
         }
     }
 
@@ -89,5 +137,33 @@ class AuditEventControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(true))
                 .andExpect(jsonPath("$.reason").value("Hash chain is valid"));
+    }
+
+    @Test
+    void redactEvent_shouldReturnRedactedEvent() throws Exception {
+        RedactRequest request = new RedactRequest();
+        request.setFields(List.of("ipAddress"));
+
+        mockMvc.perform(post("/audit/events/1/redact")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.redactedFields[0]").value("ipAddress"))
+                .andExpect(jsonPath("$.payload").value("{\"ipAddress\":\"[REDACTED]\",\"status\":\"SUCCESS\"}"));
+    }
+
+    @Test
+    void archiveEvent_shouldReturnArchivedEvent() throws Exception {
+        mockMvc.perform(post("/audit/events/1/archive"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1));
+    }
+
+    @Test
+    void exportByActor_shouldReturnBundle() throws Exception {
+        mockMvc.perform(get("/audit/exports/actor/user-101"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.actorId").value("user-101"))
+                .andExpect(jsonPath("$.bundleHash").value("bundle-hash"));
     }
 }

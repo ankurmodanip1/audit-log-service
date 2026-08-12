@@ -1,7 +1,9 @@
 package com.schwab.auditlog.controller;
 
 import com.schwab.auditlog.dto.AuditEventResponse;
+import com.schwab.auditlog.dto.AuditExportBundle;
 import com.schwab.auditlog.dto.CreateAuditEventRequest;
+import com.schwab.auditlog.dto.RedactRequest;
 import com.schwab.auditlog.dto.VerifyResponse;
 import com.schwab.auditlog.service.AuditEventService;
 import jakarta.validation.Valid;
@@ -42,5 +44,25 @@ public class AuditEventController {
     @GetMapping("/verify")
     public VerifyResponse verifyChain() {
         return service.verifyChain();
+    }
+
+    @PostMapping("/events/{id}/redact")
+    public AuditEventResponse redactEvent(@PathVariable Long id, @Valid @RequestBody RedactRequest request) {
+        return service.redactEvent(id, request);
+    }
+
+    @PostMapping("/events/{id}/archive")
+    public AuditEventResponse archiveEvent(@PathVariable Long id) {
+        return service.archiveEvent(id);
+    }
+
+    @GetMapping("/exports/actor/{actorId}")
+    public AuditExportBundle exportByActor(@PathVariable String actorId) {
+        return service.exportByActor(actorId);
+    }
+
+    @GetMapping("/exports/resource/{resourceId}")
+    public AuditExportBundle exportByResource(@PathVariable String resourceId) {
+        return service.exportByResource(resourceId);
     }
 }

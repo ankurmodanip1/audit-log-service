@@ -15,14 +15,18 @@ public class HashService {
                 event.getActorId() + "|" +
                 event.getResourceType() + "|" +
                 event.getResourceId() + "|" +
-                event.getPayload() + "|" +
+                event.getPayloadHash() + "|" +
                 event.getEventTimestamp() + "|" +
                 event.getPreviousHash();
 
         return sha256(canonicalData);
     }
 
-    private String sha256(String input) {
+    public String calculatePayloadHash(String payloadJson) {
+        return sha256(payloadJson);
+    }
+
+    public String sha256(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] encodedHash = digest.digest(input.getBytes(StandardCharsets.UTF_8));

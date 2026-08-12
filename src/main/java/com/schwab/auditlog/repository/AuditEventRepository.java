@@ -13,4 +13,8 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, Long>,
     Optional<AuditEvent> findTopByOrderByIdDesc();
 
     List<AuditEvent> findAllByOrderByIdAsc();
+
+    List<AuditEvent> findAllByActorIdAndArchivedFalseOrderByIdAsc(String actorId);
+
+    List<AuditEvent> findAllByResourceIdAndArchivedFalseOrderByIdAsc(String resourceId);
 }

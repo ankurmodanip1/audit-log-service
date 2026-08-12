@@ -1,6 +1,7 @@
 package com.schwab.auditlog.dto;
 
 import java.time.Instant;
+import java.util.List;
 
 public class AuditEventResponse {
 
@@ -13,11 +14,14 @@ public class AuditEventResponse {
     private Instant timestamp;
     private String currentHash;
     private String previousHash;
+    private List<String> redactedFields;
+    private boolean archived;
 
     public AuditEventResponse(Long id, String eventType, String actorId,
                               String resourceType, String resourceId,
                               String payload, Instant timestamp,
-                              String currentHash, String previousHash) {
+                              String currentHash, String previousHash,
+                              List<String> redactedFields, boolean archived) {
         this.id = id;
         this.eventType = eventType;
         this.actorId = actorId;
@@ -27,6 +31,17 @@ public class AuditEventResponse {
         this.timestamp = timestamp;
         this.currentHash = currentHash;
         this.previousHash = previousHash;
+        this.redactedFields = redactedFields;
+        this.archived = archived;
+    }
+
+    public AuditEventResponse(Long id, String eventType, String actorId,
+                              String resourceType, String resourceId,
+                              String payload, Instant timestamp,
+                              String currentHash, String previousHash,
+                              List<String> redactedFields) {
+        this(id, eventType, actorId, resourceType, resourceId, payload,
+             timestamp, currentHash, previousHash, redactedFields, false);
     }
 
     public Long getId() {
@@ -63,5 +78,13 @@ public class AuditEventResponse {
 
     public String getPreviousHash() {
         return previousHash;
+    }
+
+    public List<String> getRedactedFields() {
+        return redactedFields;
+    }
+
+    public boolean isArchived() {
+        return archived;
     }
 }

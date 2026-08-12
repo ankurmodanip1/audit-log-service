@@ -1,8 +1,11 @@
 package com.schwab.auditlog.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.schwab.auditlog.dto.AuditEventResponse;
+import com.schwab.auditlog.dto.AuditExportBundle;
 import com.schwab.auditlog.dto.CreateAuditEventRequest;
+import com.schwab.auditlog.dto.RedactRequest;
 import com.schwab.auditlog.dto.VerifyResponse;
 import com.schwab.auditlog.entity.AuditEvent;
 import com.schwab.auditlog.repository.AuditEventRepository;
@@ -13,7 +16,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class AuditEventService {
@@ -35,6 +41,7 @@ public class AuditEventService {
     public AuditEventResponse createEvent(CreateAuditEventRequest request) {
         try {
             String payloadJson = objectMapper.writeValueAsString(request.getPayload());
+            String payloadHash = hashService.calculatePayloadHash(payloadJson);
 
             String previousHash = repository.findTopByOrderByIdDesc()
                     .map(AuditEvent::getCurrentHash)
@@ -46,6 +53,8 @@ public class AuditEventService {
             event.setResourceType(request.getResourceType());
             event.setResourceId(request.getResourceId());
             event.setPayload(payloadJson);
+            event.setPayloadHash(payloadHash);
+            event.setRedactedFields(null);
             event.setEventTimestamp(
                     request.getTimestamp() != null ? request.getTimestamp() : Instant.now()
             );
@@ -106,7 +115,73 @@ public class AuditEventService {
         return new VerifyResponse(true, null, "Hash chain is valid");
     }
 
+    public AuditEventResponse redactEvent(Long id, RedactRequest request) {
+        try {
+            AuditEvent event = repository.findById(id)
+                    .orElseThrow(() -> new IllegalStateException("Audit event not found"));
+
+            Map<String, Object> payloadMap = objectMapper.readValue(event.getPayload(), new TypeReference<>() {
+            });
+            for (String field : request.getFields()) {
+                if (payloadMap.containsKey(field)) {
+                    payloadMap.put(field, "[REDACTED]");
+                }
+            }
+
+            event.setPayload(objectMapper.writeValueAsString(payloadMap));
+            event.setRedactedFields(String.join(",", request.getFields()));
+            AuditEvent saved = repository.save(event);
+            return mapToResponse(saved);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Failed to redact audit event", exception);
+        }
+    }
+
+    public AuditEventResponse archiveEvent(Long id) {
+        AuditEvent event = repository.findById(id)
+                .orElseThrow(() -> new IllegalStateException("Audit event not found"));
+
+        event.setArchived(true);
+        AuditEvent saved = repository.save(event);
+        return mapToResponse(saved);
+    }
+
+    public AuditExportBundle exportByActor(String actorId) {
+        List<AuditEventResponse> records = repository
+                .findAllByActorIdAndArchivedFalseOrderByIdAsc(actorId)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+
+        String bundleHash = calculateBundleHash(records);
+        return new AuditExportBundle(actorId, null, bundleHash, records);
+    }
+
+    public AuditExportBundle exportByResource(String resourceId) {
+        List<AuditEventResponse> records = repository
+                .findAllByResourceIdAndArchivedFalseOrderByIdAsc(resourceId)
+                .stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+
+        String bundleHash = calculateBundleHash(records);
+        return new AuditExportBundle(null, resourceId, bundleHash, records);
+    }
+
+    private String calculateBundleHash(List<AuditEventResponse> records) {
+        String canonical = records.stream()
+                .sorted(Comparator.comparing(AuditEventResponse::getId))
+                .map(record -> record.getId() + "|" + record.getCurrentHash())
+                .collect(Collectors.joining("|"));
+
+        return hashService.sha256(canonical);
+    }
+
     private AuditEventResponse mapToResponse(AuditEvent event) {
+        List<String> redactedFields = event.getRedactedFields() == null || event.getRedactedFields().isBlank()
+                ? List.of()
+                : List.of(event.getRedactedFields().split(","));
+
         return new AuditEventResponse(
                 event.getId(),
                 event.getEventType(),
@@ -116,7 +191,9 @@ public class AuditEventService {
                 event.getPayload(),
                 event.getEventTimestamp(),
                 event.getCurrentHash(),
-                event.getPreviousHash()
+                event.getPreviousHash(),
+                redactedFields,
+                event.isArchived()
         );
     }
 }
