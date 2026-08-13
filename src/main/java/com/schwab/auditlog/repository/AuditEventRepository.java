@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface AuditEventRepository extends JpaRepository<AuditEvent, Long>,
-        JpaSpecificationExecutor<AuditEvent> {
+    JpaSpecificationExecutor<AuditEvent>, AuditEventRepositoryCustom {
 
     Optional<AuditEvent> findTopByOrderByIdDesc();
 

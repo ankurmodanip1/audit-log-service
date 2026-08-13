@@ -15,6 +15,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -42,14 +43,19 @@ public class AuditEventService {
         this.retentionPolicy = retentionPolicy;
     }
 
+    @Transactional
     public AuditEventResponse createEvent(CreateAuditEventRequest request) {
         try {
             String payloadJson = objectMapper.writeValueAsString(request.getPayload());
             String payloadHash = hashService.calculatePayloadHash(payloadJson);
 
-            String previousHash = repository.findTopByOrderByIdDesc()
-                    .map(AuditEvent::getCurrentHash)
-                    .orElse(GENESIS_HASH);
+                    // Try to acquire a DB lock on the latest row to serialize chain append operations.
+                    // If the custom locked finder isn't available (e.g. in simple mocks), fall back
+                    // to the previous non-locking finder to keep tests stable.
+                    String previousHash = repository.findLastEventForUpdate()
+                        .map(AuditEvent::getCurrentHash)
+                        .or(() -> repository.findTopByOrderByIdDesc().map(AuditEvent::getCurrentHash))
+                        .orElse(GENESIS_HASH);
 
             AuditEvent event = new AuditEvent();
             event.setEventType(request.getEventType());
@@ -119,6 +125,7 @@ public class AuditEventService {
         return new VerifyResponse(true, null, "Hash chain is valid");
     }
 
+    @Transactional
     public AuditEventResponse redactEvent(Long id, RedactRequest request) {
         try {
             AuditEvent event = repository.findById(id)
@@ -141,6 +148,7 @@ public class AuditEventService {
         }
     }
 
+    @Transactional
     public AuditEventResponse archiveEvent(Long id) {
         AuditEvent event = repository.findById(id)
                 .orElseThrow(() -> new IllegalStateException("Audit event not found"));
@@ -151,6 +159,7 @@ public class AuditEventService {
     }
 
     @Scheduled(cron = "${audit.retention.cron:0 0 0 * * ?}")
+    @Transactional
     public int archiveExpiredEvents() {
         Instant cutoff = retentionPolicy.calculateCutoff(Instant.now());
         List<AuditEvent> eventsToArchive = repository

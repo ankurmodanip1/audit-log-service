@@ -11,6 +11,9 @@ public class AuditEvent {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Version
+    private Long version;
+
     private String eventType;
 
     private String actorId;
@@ -42,6 +45,10 @@ public class AuditEvent {
 
     public Long getId() {
         return id;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 
     public String getEventType() {
