@@ -152,6 +152,23 @@ ServiceMonitor (Prometheus Operator) will pick up Services by label (see `monito
 mvn test
 ```
 
+### Run tests with coverage (recommended Java 17)
+
+The JaCoCo agent used to produce coverage reports may fail to instrument newer JDK classfile versions (for example, Java 25). To generate a coverage report reliably, run tests using Java 17 and then generate the report:
+
+```bash
+# ensure your `java -version` points to a Java 17 JDK (use SDKMAN/jenv/ASDF or a container)
+mvn clean test jacoco:report
+
+# coverage report is produced at target/site/jacoco/index.html
+```
+
+If you cannot switch your local JDK, run the tests in CI using a Java 17 runner or in a temporary Docker container:
+
+```bash
+docker run --rm -v "$PWD":/src -w /src eclipse-temurin:17-jdk mvn clean test jacoco:report
+```
+
 ## Notes
 
 - Archived records are retained in storage but excluded from active export results.
