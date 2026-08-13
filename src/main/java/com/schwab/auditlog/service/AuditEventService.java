@@ -13,6 +13,7 @@ import com.schwab.auditlog.specification.AuditEventSpecification;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -29,13 +30,16 @@ public class AuditEventService {
     private final AuditEventRepository repository;
     private final HashService hashService;
     private final ObjectMapper objectMapper;
+    private final RetentionPolicy retentionPolicy;
 
     public AuditEventService(AuditEventRepository repository,
                              HashService hashService,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             RetentionPolicy retentionPolicy) {
         this.repository = repository;
         this.hashService = hashService;
         this.objectMapper = objectMapper;
+        this.retentionPolicy = retentionPolicy;
     }
 
     public AuditEventResponse createEvent(CreateAuditEventRequest request) {
@@ -144,6 +148,21 @@ public class AuditEventService {
         event.setArchived(true);
         AuditEvent saved = repository.save(event);
         return mapToResponse(saved);
+    }
+
+    @Scheduled(cron = "${audit.retention.cron:0 0 0 * * ?}")
+    public int archiveExpiredEvents() {
+        Instant cutoff = retentionPolicy.calculateCutoff(Instant.now());
+        List<AuditEvent> eventsToArchive = repository
+                .findAllByArchivedFalseAndEventTimestampBeforeOrderByIdAsc(cutoff);
+
+        if (eventsToArchive.isEmpty()) {
+            return 0;
+        }
+
+        eventsToArchive.forEach(event -> event.setArchived(true));
+        repository.saveAll(eventsToArchive);
+        return eventsToArchive.size();
     }
 
     public AuditExportBundle exportByActor(String actorId) {

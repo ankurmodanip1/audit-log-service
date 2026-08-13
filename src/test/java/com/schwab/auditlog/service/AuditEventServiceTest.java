@@ -17,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.anyList;
 
 @ExtendWith(MockitoExtension.class)
 class AuditEventServiceTest {
@@ -56,7 +59,8 @@ class AuditEventServiceTest {
         request.setTimestamp(timestamp);
         hashService = new HashService();
         objectMapper = new ObjectMapper();
-        service = new AuditEventService(repository, hashService, objectMapper);
+        RetentionPolicy retentionPolicy = new RetentionPolicy(Duration.ofDays(30));
+        service = new AuditEventService(repository, hashService, objectMapper, retentionPolicy);
     }
 
     @Test
@@ -172,5 +176,26 @@ class AuditEventServiceTest {
         assertFalse(response.isValid());
         assertEquals(1L, response.getBrokenRecordId());
         assertEquals("Current hash mismatch. Record may have been modified.", response.getReason());
+    }
+
+    @Test
+    void archiveExpiredEvents_shouldArchiveOldEvents() {
+        AuditEvent oldEvent = new AuditEvent();
+        oldEvent.setId(1L);
+        oldEvent.setEventType("USER_LOGIN");
+        oldEvent.setActorId("user-101");
+        oldEvent.setResourceType("ACCOUNT");
+        oldEvent.setResourceId("ACC-001");
+        oldEvent.setPayload("payload-json");
+        oldEvent.setEventTimestamp(Instant.parse("2026-06-01T10:00:00Z"));
+        oldEvent.setArchived(false);
+
+        when(repository.findAllByArchivedFalseAndEventTimestampBeforeOrderByIdAsc(any(Instant.class)))
+                .thenReturn(List.of(oldEvent));
+
+        int archived = service.archiveExpiredEvents();
+
+        assertEquals(1, archived);
+        verify(repository).saveAll(anyList());
     }
 }

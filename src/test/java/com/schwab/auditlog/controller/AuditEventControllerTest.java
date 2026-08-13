@@ -33,7 +33,7 @@ class AuditEventControllerTest {
 
     private static class AuditEventServiceStub extends AuditEventService {
         AuditEventServiceStub() {
-            super(null, null, null);
+            super(null, null, null, null);
         }
 
         @Override

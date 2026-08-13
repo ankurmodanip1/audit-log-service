@@ -10,6 +10,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import java.time.Duration;
 
 import java.time.Instant;
 
@@ -17,6 +18,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -105,6 +107,25 @@ class AuditEventControllerIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.records.length()").value(0));
     }
+
+        @Test
+        void retentionArchiveEndpoint_shouldArchiveOldEvents() throws Exception {
+        AuditEvent oldEvent = createEvent("user-200", "ACCOUNT", "ACC-200", false);
+        oldEvent.setEventTimestamp(Instant.now().minus(Duration.ofDays(31)));
+        AuditEvent recentEvent = createEvent("user-200", "ACCOUNT", "ACC-200", false);
+        recentEvent.setEventTimestamp(Instant.now());
+
+        repository.save(oldEvent);
+        repository.save(recentEvent);
+
+        mockMvc.perform(post("/audit/retention/archive").accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andExpect(content().string("1"));
+
+        mockMvc.perform(get("/audit/exports/actor/user-200").accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.records.length()").value(1));
+        }
 
     private AuditEvent createEvent(String actorId, String resourceType, String resourceId, boolean archived) {
         AuditEvent event = new AuditEvent();

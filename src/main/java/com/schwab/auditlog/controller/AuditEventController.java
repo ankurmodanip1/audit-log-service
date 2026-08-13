@@ -56,6 +56,11 @@ public class AuditEventController {
         return service.archiveEvent(id);
     }
 
+    @PostMapping("/retention/archive")
+    public int archiveExpiredEvents() {
+        return service.archiveExpiredEvents();
+    }
+
     @GetMapping("/exports/actor/{actorId}")
     public AuditExportBundle exportByActor(@PathVariable String actorId) {
         return service.exportByActor(actorId);
