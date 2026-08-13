@@ -116,6 +116,36 @@ mvn -Dspring-boot.run.profiles=prod spring-boot:run
 
 See `src/main/resources/application-prod.properties.example` for a sample.
 
+## Kubernetes / Prometheus
+
+If you deploy to Kubernetes, expose the service and label it so Prometheus can discover it.
+
+Sample `Service` manifest (monitoring/k8s/audit-log-service.yaml):
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-log-service
+  labels:
+    app: audit-log
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/path: /actuator/prometheus
+    prometheus.io/port: "8080"
+spec:
+  selector:
+    app: audit-log
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+```
+
+ServiceMonitor (Prometheus Operator) will pick up Services by label (see `monitoring/prometheus-scrape-example.yml`). Alternatively annotate pods with `prometheus.io/scrape=true` and the `prometheus.io/path`/`port` as shown above.
+
 ### Run tests
 
 ```bash

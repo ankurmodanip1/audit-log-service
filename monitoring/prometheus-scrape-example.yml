@@ -1,0 +1,46 @@
+# Prometheus scrape configuration snippet (for prometheus.yml)
+# Static scrape (non-Kubernetes) example
+scrape_configs:
+  - job_name: 'audit-log-service'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['audit-log-service:8080']
+
+# Kubernetes discovery example (prometheus server using kubernetes_sd_configs)
+# This keeps pods/services that opt into scraping via annotations.
+# It requires Prometheus to have RBAC access to the cluster.
+# Example relabeling keeps pods annotated with prometheus.io/scrape=true
+scrape_configs:
+  - job_name: 'kubernetes-pods-audit-log'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        regex: 'true'
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        target_label: __metrics_path__
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+        target_label: __address__
+        replacement: '$1'
+
+---
+# Prometheus Operator: ServiceMonitor example (monitoring.coreos.com/v1)
+# Assumes your Service has label app: audit-log and exposes a port named 'http'.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: audit-log-service
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: audit-log
+  namespaceSelector:
+    any: true
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 15s
+      scheme: http

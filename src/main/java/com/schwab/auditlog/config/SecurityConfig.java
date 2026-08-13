@@ -28,6 +28,7 @@ public class SecurityConfig {
                 .cors().and()
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/h2-console/**").hasRole("ADMIN")
+                        .requestMatchers("/actuator/**").hasRole("ADMIN")
                         .requestMatchers("POST", "/audit/events").hasAnyRole("WRITER","ADMIN")
                         .requestMatchers("POST", "/audit/events/*/redact").hasRole("ADMIN")
                         .requestMatchers("POST", "/audit/events/*/archive").hasRole("ADMIN")
