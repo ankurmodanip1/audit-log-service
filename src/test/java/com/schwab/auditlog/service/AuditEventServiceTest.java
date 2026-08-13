@@ -112,6 +112,7 @@ class AuditEventServiceTest {
         firstEvent.setPayload("payload-json");
         firstEvent.setEventTimestamp(timestamp);
         firstEvent.setPreviousHash("GENESIS");
+        firstEvent.setPayloadHash(hashService.calculatePayloadHash(firstEvent.getPayload()));
         firstEvent.setCurrentHash(hashService.calculateHash(firstEvent));
 
         AuditEvent secondEvent = new AuditEvent();
@@ -123,6 +124,7 @@ class AuditEventServiceTest {
         secondEvent.setPayload("payload-json-2");
         secondEvent.setEventTimestamp(timestamp.plusSeconds(60));
         secondEvent.setPreviousHash(firstEvent.getCurrentHash());
+        secondEvent.setPayloadHash(hashService.calculatePayloadHash(secondEvent.getPayload()));
         secondEvent.setCurrentHash(hashService.calculateHash(secondEvent));
 
         when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(firstEvent, secondEvent));
@@ -145,6 +147,7 @@ class AuditEventServiceTest {
         event.setPayload("payload-json");
         event.setEventTimestamp(timestamp);
         event.setPreviousHash("broken-hash");
+        event.setPayloadHash(hashService.calculatePayloadHash(event.getPayload()));
         event.setCurrentHash("hash-1");
 
         when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(event));
@@ -167,6 +170,7 @@ class AuditEventServiceTest {
         event.setPayload("payload-json");
         event.setEventTimestamp(timestamp);
         event.setPreviousHash("GENESIS");
+        event.setPayloadHash(hashService.calculatePayloadHash(event.getPayload()));
         event.setCurrentHash("invalid-hash");
 
         when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(event));

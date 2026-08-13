@@ -145,4 +145,27 @@ class AuditEventControllerIntegrationTest {
         event.setCurrentHash(hashService.calculateHash(event));
         return event;
     }
+
+    @Test
+    void verifyChain_shouldDetectTampering() throws Exception {
+        AuditEvent first = createEvent("user-300", "ACCOUNT", "ACC-300", false);
+        AuditEvent second = createEvent("user-300", "ACCOUNT", "ACC-300", false);
+
+        AuditEvent savedFirst = repository.save(first);
+
+        // link second event to first's current hash to form a valid chain
+        second.setPreviousHash(savedFirst.getCurrentHash());
+        second.setCurrentHash(hashService.calculateHash(second));
+        AuditEvent savedSecond = repository.save(second);
+
+        // Tamper with the second record's payload without updating its currentHash
+        savedSecond.setPayload("{\"ipAddress\":\"1.2.3.4\",\"status\":\"FAIL\"}");
+        repository.save(savedSecond);
+
+        mockMvc.perform(get("/audit/verify").accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.valid").value(false))
+            .andExpect(jsonPath("$.brokenRecordId").value(savedSecond.getId().intValue()))
+            .andExpect(jsonPath("$.reason").value("Payload hash mismatch. Record payload may have been modified."));
+    }
 }

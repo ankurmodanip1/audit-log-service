@@ -109,6 +109,18 @@ public class AuditEventService {
                 );
             }
 
+            // Verify payload integrity: the stored payloadHash must match the actual
+            // payload content. This detects tampering where payload was changed but
+            // payloadHash was not updated.
+            String recalculatedPayloadHash = hashService.calculatePayloadHash(event.getPayload());
+            if (!recalculatedPayloadHash.equals(event.getPayloadHash())) {
+                return new VerifyResponse(
+                        false,
+                        event.getId(),
+                        "Payload hash mismatch. Record payload may have been modified."
+                );
+            }
+
             String recalculatedHash = hashService.calculateHash(event);
 
             if (!recalculatedHash.equals(event.getCurrentHash())) {
