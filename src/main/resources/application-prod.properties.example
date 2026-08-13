@@ -1,0 +1,22 @@
+# Example production configuration. Copy to application-prod.properties and fill secrets.
+
+# Database (production)
+SPRING_DATASOURCE_URL=jdbc:postgresql://db-host:5432/auditdb
+SPRING_DATASOURCE_USERNAME=your_db_user
+SPRING_DATASOURCE_PASSWORD=your_db_password
+
+# JPA
+spring.jpa.hibernate.ddl-auto=validate
+spring.jpa.show-sql=false
+spring.jpa.open-in-view=false
+
+# Disable H2 console in production
+spring.h2.console.enabled=false
+
+# Actuator
+management.endpoints.web.exposure.include=health,info,prometheus,metrics
+management.endpoint.health.show-details=when_authorized
+management.endpoints.web.base-path=/actuator
+
+# Metrics
+management.metrics.export.prometheus.enabled=true

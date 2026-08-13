@@ -100,6 +100,22 @@ Open:
 http://localhost:8080/h2-console
 ```
 
+### Production
+
+Create `src/main/resources/application-prod.properties` (or set environment variables) and run with the `prod` profile:
+
+```bash
+# Example using environment variables
+export SPRING_DATASOURCE_URL=jdbc:postgresql://db-host:5432/auditdb
+export SPRING_DATASOURCE_USERNAME=your_db_user
+export SPRING_DATASOURCE_PASSWORD=your_db_password
+
+# Run with prod profile
+mvn -Dspring-boot.run.profiles=prod spring-boot:run
+```
+
+See `src/main/resources/application-prod.properties.example` for a sample.
+
 ### Run tests
 
 ```bash
