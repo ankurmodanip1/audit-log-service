@@ -9,9 +9,17 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Export Redis env for tests
+        run: echo "REDIS_HOST=localhost" >> $GITHUB_ENV && echo "REDIS_PORT=6379" >> $GITHUB_ENV
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

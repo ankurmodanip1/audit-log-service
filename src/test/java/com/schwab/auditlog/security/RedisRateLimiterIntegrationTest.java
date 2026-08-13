@@ -34,8 +34,15 @@ public class RedisRateLimiterIntegrationTest {
 
     @DynamicPropertySource
     static void redisProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.redis.host", redis::getHost);
-        registry.add("spring.redis.port", () -> redis.getMappedPort(6379));
+        String envHost = System.getenv("REDIS_HOST");
+        String envPort = System.getenv("REDIS_PORT");
+        if (envHost != null && envPort != null) {
+            registry.add("spring.redis.host", () -> envHost);
+            registry.add("spring.redis.port", () -> Integer.parseInt(envPort));
+        } else {
+            registry.add("spring.redis.host", redis::getHost);
+            registry.add("spring.redis.port", () -> redis.getMappedPort(6379));
+        }
     }
 
     @Autowired
