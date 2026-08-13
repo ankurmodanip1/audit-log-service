@@ -183,6 +183,82 @@ class AuditEventServiceTest {
     }
 
     @Test
+    void verifyChain_shouldDetectPayloadTamperWhenPayloadChangedWithoutUpdatingPayloadHash() {
+        AuditEvent event = new AuditEvent();
+        event.setId(1L);
+        event.setEventType("USER_LOGIN");
+        event.setActorId("user-101");
+        event.setResourceType("ACCOUNT");
+        event.setResourceId("ACC-001");
+        // store original payload and its hash
+        event.setPayload("original-payload");
+        event.setEventTimestamp(timestamp);
+        event.setPreviousHash("GENESIS");
+        event.setPayloadHash(hashService.calculatePayloadHash("original-payload"));
+        event.setCurrentHash(hashService.calculateHash(event));
+
+        // simulate tampering: payload changed in DB but payloadHash was not updated
+        event.setPayload("tampered-payload");
+
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(event));
+
+        VerifyResponse response = service.verifyChain();
+
+        assertFalse(response.isValid());
+        assertEquals(1L, response.getBrokenRecordId());
+        assertEquals("Payload hash mismatch. Record payload may have been modified.", response.getReason());
+    }
+
+    @Test
+    void verifyChain_shouldDetectReplayWhenPreviousHashUnexpected() {
+        AuditEvent first = new AuditEvent();
+        first.setId(1L);
+        first.setEventType("USER_LOGIN");
+        first.setActorId("user-101");
+        first.setResourceType("ACCOUNT");
+        first.setResourceId("ACC-001");
+        first.setPayload("payload-1");
+        first.setEventTimestamp(timestamp);
+        first.setPreviousHash("GENESIS");
+        first.setPayloadHash(hashService.calculatePayloadHash(first.getPayload()));
+        first.setCurrentHash(hashService.calculateHash(first));
+
+        AuditEvent second = new AuditEvent();
+        second.setId(2L);
+        second.setEventType("USER_UPDATE");
+        second.setActorId("user-101");
+        second.setResourceType("ACCOUNT");
+        second.setResourceId("ACC-001");
+        second.setPayload("payload-2");
+        second.setEventTimestamp(timestamp.plusSeconds(30));
+        second.setPreviousHash(first.getCurrentHash());
+        second.setPayloadHash(hashService.calculatePayloadHash(second.getPayload()));
+        second.setCurrentHash(hashService.calculateHash(second));
+
+        // Replay scenario: a third record appears that references the first's hash
+        AuditEvent third = new AuditEvent();
+        third.setId(3L);
+        third.setEventType("USER_LOGIN");
+        third.setActorId("user-101");
+        third.setResourceType("ACCOUNT");
+        third.setResourceId("ACC-001");
+        third.setPayload("payload-3");
+        third.setEventTimestamp(timestamp.plusSeconds(60));
+        // incorrect previous hash (replay of first)
+        third.setPreviousHash(first.getCurrentHash());
+        third.setPayloadHash(hashService.calculatePayloadHash(third.getPayload()));
+        third.setCurrentHash(hashService.calculateHash(third));
+
+        when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(first, second, third));
+
+        VerifyResponse response = service.verifyChain();
+
+        assertFalse(response.isValid());
+        assertEquals(3L, response.getBrokenRecordId());
+        assertEquals("Previous hash mismatch", response.getReason());
+    }
+
+    @Test
     void archiveExpiredEvents_shouldArchiveOldEvents() {
         AuditEvent oldEvent = new AuditEvent();
         oldEvent.setId(1L);
