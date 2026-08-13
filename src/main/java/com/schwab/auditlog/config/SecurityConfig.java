@@ -16,7 +16,8 @@ import com.schwab.auditlog.security.RateLimitingFilter;
 
 @Configuration
 @EnableWebSecurity
-@Profile("!test")
+// Do not load the production security config during tests that use the `securitytest` profile
+@Profile("!test & !securitytest")
 public class SecurityConfig {
 
     @Bean

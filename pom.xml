@@ -80,6 +80,14 @@
             <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Redisson client for distributed Bucket4j storage -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.20.0</version>
+        </dependency>
+
+        <!-- Bucket4j was considered but using Redisson's distributed rate limiter instead -->
         <!-- Testcontainers for integration tests (Redis) -->
         <dependency>
             <groupId>org.testcontainers</groupId>

@@ -37,12 +37,36 @@ public class HashService {
         if (payloadJson == null) return sha256("");
         try {
             JsonNode node = canonicalMapper.readTree(payloadJson);
-            String canonical = canonicalMapper.writeValueAsString(node);
+            JsonNode sorted = sortJson(node);
+            String canonical = canonicalMapper.writeValueAsString(sorted);
             return sha256(canonical);
         } catch (Exception e) {
             // If payload isn't valid JSON, fallback to hashing raw string
             return sha256(payloadJson);
         }
+    }
+
+    private JsonNode sortJson(JsonNode node) {
+        if (node == null || node.isNull() || node.isValueNode()) return node;
+        if (node.isObject()) {
+            // create a new ObjectNode with sorted field names
+            com.fasterxml.jackson.databind.node.ObjectNode obj = canonicalMapper.createObjectNode();
+            java.util.List<String> names = new java.util.ArrayList<>();
+            node.fieldNames().forEachRemaining(names::add);
+            java.util.Collections.sort(names);
+            for (String name : names) {
+                obj.set(name, sortJson(node.get(name)));
+            }
+            return obj;
+        }
+        if (node.isArray()) {
+            com.fasterxml.jackson.databind.node.ArrayNode arr = canonicalMapper.createArrayNode();
+            for (JsonNode el : node) {
+                arr.add(sortJson(el));
+            }
+            return arr;
+        }
+        return node;
     }
 
     private String safe(String s) {
