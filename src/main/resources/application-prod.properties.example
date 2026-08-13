@@ -20,3 +20,6 @@ management.endpoints.web.base-path=/actuator
 
 # Metrics
 management.metrics.export.prometheus.enabled=true
+
+# Max payload accepted by the service (bytes)
+audit.payload.max-bytes=8192

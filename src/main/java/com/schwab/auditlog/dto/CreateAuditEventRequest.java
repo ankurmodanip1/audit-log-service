@@ -2,6 +2,7 @@ package com.schwab.auditlog.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.Map;
 
@@ -20,6 +21,7 @@ public class CreateAuditEventRequest {
     private String resourceId;
 
     @NotNull
+    @Size(max = 2048)
     private Map<String, Object> payload;
 
     private Instant timestamp;
