@@ -319,3 +319,36 @@ This usage log should be updated after each AI-assisted coding session. Each ent
 - the rationale behind each decision.
 
 This maintains a clear, reviewable record of AI-assisted development decisions and ensures accountability for the evolution of the project.
+
+### 2026-08-13 — Validation, payload limits, and test additions
+
+**Prompt given to AI**
+
+> Add request payload size enforcement and DTO validation tests; link AI usage log in attestation.
+
+**AI output / actions performed**
+
+- Added `PayloadSizeFilter` to reject requests with `Content-Length` exceeding `audit.payload.max-bytes`.
+- Added `@Size(max = 2048)` to `CreateAuditEventRequest.payload` to limit logical payload size.
+- Added `ValidationExceptionHandler` (`@ControllerAdvice`) to return structured validation error responses.
+- Added unit tests in `AuditEventControllerValidationTest` for oversized payload (expect 413) and DTO validation violation (expect 400).
+- Updated `application.properties` and `application-prod.properties.example` with `audit.payload.max-bytes=8192` default.
+- Linked `AI_USAGE_LOG.md` from `ATTESTATION.md` as a Markdown link.
+
+**Accepted**
+
+- The code changes above were applied; unit tests were run locally to validate behavior.
+
+**Modified / discarded**
+
+- Adjusted the DTO-validation test to bypass the `PayloadSizeFilter` so DTO validation is reached and returns 400.
+
+**Reason**
+
+Ensures incoming requests are bounded at the HTTP layer and logically validated at the DTO layer; keeps error semantics clear and testable.
+
+**Result**
+
+Files modified: `src/main/java/com/schwab/auditlog/web/PayloadSizeFilter.java`, `src/main/java/com/schwab/auditlog/web/ValidationExceptionHandler.java`, `src/main/java/com/schwab/auditlog/dto/CreateAuditEventRequest.java`, `src/test/java/com/schwab/auditlog/controller/AuditEventControllerValidationTest.java`, `src/main/resources/application.properties`, `src/main/resources/application-prod.properties.example`, and `ATTESTATION.md`.
+
+Additions verified by running `mvn test` locally; test suite ran and the new tests executed (one earlier run reported 1 failure before adjustment; retested after fix).

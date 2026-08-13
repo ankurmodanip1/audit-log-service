@@ -12,4 +12,4 @@ Repository: https://github.com/ankurmodanip1/audit-log-service
 Commit: 8db9508
 Branch: main
 Scope: Full service implementation (controller, service, repository, tests, CI)
-AI assistance: Development used AI tools for scaffolding, tests, and documentation; see AI_USAGE_LOG.md for prompts and interactions.
+AI assistance: Development used AI tools for scaffolding, tests, and documentation; see [AI Usage Log](AI_USAGE_LOG.md) for prompts and interactions.
