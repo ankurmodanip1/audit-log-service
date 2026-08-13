@@ -1,16 +1,16 @@
 # Audit Log Service Architecture
 
 ## Overview
-Design of a Spring Boot-based tamper-evident audit log service with H2 persistence for local development, SHA-256 hash chaining, append-only storage, verification APIs, and paginated event queries.
+This project implements a Spring Boot-based tamper-evident audit log service using JPA and H2 for local development. The service stores audit events in a hash-linked chain, validates integrity through SHA-256, and exposes APIs for creation, search, verification, redaction, archival, and export.
 
-The persistence layer is database-agnostic and can be migrated to PostgreSQL for production deployment with minimal configuration changes.
+The implementation is designed to remain adaptable for production-grade persistence while currently using H2 for fast development and local validation.
 
 Goals:
-- Persist append-only audit records.
-- Maintain a tamper-evident record chain using SHA-256.
-- Expose a verification API for single-record and chain validation.
-- Provide event query APIs with filtering and pagination.
-- Keep the implementation aligned to standard audit event fields: `eventType`, `actorId`, `resourceType`, `resourceId`, `payload`, `timestamp`.
+- Persist audit events in an append-friendly model.
+- Maintain tamper-evident integrity using SHA-256 hash chaining.
+- Expose verification APIs for the chain state.
+- Support search, archive, redaction, and export operations.
+- Keep the domain model aligned with the actual event fields used by the service: eventType, actorId, resourceType, resourceId, payload, payloadHash, currentHash, previousHash, and archived.
 
 ---
 
@@ -18,45 +18,56 @@ Goals:
 
 ### High-level layers
 1. API Layer
-   - Spring MVC REST controllers.
-   - REST endpoints for ingest, query, and verification.
+   - Spring MVC REST controller for audit operations.
+   - Endpoints under the /audit base path.
 2. Service Layer
-   - Business rules for audit creation, chain hash computation, and verification.
+   - Business logic for event creation, verification, redaction, archival, and export.
 3. Persistence Layer
-   - Spring Data JPA repository for H2 Database.
-   - The repository layer remains compatible with PostgreSQL through JPA abstraction.
-   - Append-only event storage.
-4. Hashing / Verification Layer
-   - SHA-256 chain computation.
-   - Integrity validation logic.
-5. Security & Operations
-   - Authentication, authorization, and audit-level access control.
-   - Database policies to prevent updates and deletes.
+   - Spring Data JPA repository with H2 in-memory database by default.
+   - JPA abstraction supports future migration to another relational database.
+4. Hashing / Integrity Layer
+   - SHA-256 hash generation and verification logic in HashService.
+5. Retention / Operations Layer
+   - Scheduled retention policy using Spring Scheduling.
+   - Manual archival trigger for expired events.
 
 ### Component diagram
 
-- `AuditEventController`
-  - `POST /api/audit/events`
-  - `GET /api/audit/events`
-  - `GET /api/audit/verify`
-  - `GET /api/audit/events/verify-chain`
-- `AuditEventService`
-  - `createEvent(CreateAuditEventRequest)`
-  - `queryEvents(...)`
-  - `getEvent(UUID)`
-  - `verifyEvent(UUID)`
-  - `verifyChain(...)`
-- `AuditEventRepository`
-  - `save(AuditEvent)`
-  - `findById(UUID)`
-  - `findByFilters(...)`
-  - `findTopByOrderByCreatedAtDesc()`
-- `HashChainService`
-  - `computeRecordHash(auditEvent, previousHash)`
-  - `recomputeHash(record)`
-  - `validateRecord(record, previousRecord)`
-- `AuditEvent` entity
-  - persisted in `audit_event` table.
+- AuditEventController
+  - POST /audit/events
+  - GET /audit/events
+  - GET /audit/verify
+  - POST /audit/events/{id}/redact
+  - POST /audit/events/{id}/archive
+  - POST /audit/retention/archive
+  - GET /audit/exports/actor/{actorId}
+  - GET /audit/exports/resource/{resourceId}
+- AuditEventService
+  - createEvent(CreateAuditEventRequest)
+  - searchEvents(...)
+  - verifyChain()
+  - redactEvent(id, request)
+  - archiveEvent(id)
+  - archiveExpiredEvents()
+  - exportByActor(actorId)
+  - exportByResource(resourceId)
+- AuditEventRepository
+  - save(AuditEvent)
+  - findById(id)
+  - findAllByOrderByIdAsc()
+  - findAllByActorIdAndArchivedFalseOrderByIdAsc(actorId)
+  - findAllByResourceIdAndArchivedFalseOrderByIdAsc(resourceId)
+  - findAllByArchivedFalseAndEventTimestampBeforeOrderByIdAsc(cutoff)
+- HashService
+  - calculateHash(AuditEvent)
+  - calculatePayloadHash(String)
+  - sha256(String)
+- RetentionPolicy
+  - calculateCutoff(Instant)
+- AuditEventSpecification
+  - filter criteria for search requests
+- AuditEvent entity
+  - persisted as audit_events in the database
 
 ---
 
@@ -64,311 +75,224 @@ Goals:
 
 ### API Layer
 
-#### `AuditEventController`
+#### AuditEventController
 Responsibilities:
-- Accept write requests for new audit events.
-- Provide event query endpoints with filters and pagination.
-- Provide verification endpoints for individual events and chain integrity.
+- Accept event creation requests.
+- Support searching/filtering by actor, resource, type, and time window.
+- Provide chain verification.
+- Provide redaction, archival, and export endpoints.
 
 Endpoints:
-- `POST /api/audit/events` — create audit event.
-- `GET /api/audit/events` — search and page events.
-- `GET /api/audit/events/{eventId}` — retrieve a single event.
-- `GET /api/audit/events/{eventId}/verify` — verify an event hash.
-- `GET /api/audit/events/verify-chain` — verify a chain segment.
+- POST /audit/events — create a new audit event.
+- GET /audit/events — search and filter events using query parameters.
+- GET /audit/verify — verify the full hash chain.
+- POST /audit/events/{id}/redact — redact selected payload fields.
+- POST /audit/events/{id}/archive — archive a specific event.
+- POST /audit/retention/archive — manually archive expired events.
+- GET /audit/exports/actor/{actorId} — export non-archived events for a given actor.
+- GET /audit/exports/resource/{resourceId} — export non-archived events for a given resource.
 
 ### Service Layer
 
-#### `AuditEventService`
+#### AuditEventService
 Responsibilities:
-- Validate incoming payloads and required fields.
-- Determine the latest chain tail hash.
-- Compute new record hash using SHA-256.
-- Persist events in an append-only manner.
-- Execute filtered event queries with pagination.
-- Run hash integrity and chain validation.
+- Validate request payloads and generate event hashes.
+- Compute the previous hash from the most recent record in the chain.
+- Persist audit events and keep verification semantics intact.
+- Support redaction without altering the hash chain.
+- Archive expired records based on retention policy.
+- Export non-archived records in a bundle with a bundle hash.
 
 Behavior:
 - On create:
-  - Calculate `previousHash` from latest event or genesis constant.
-  - Compute `recordHash` from canonical event fields and `previousHash`.
-  - Save the event in one transaction.
+  - calculate payloadHash from JSON payload
+  - obtain the latest currentHash as previousHash or use GENESIS
+  - compute the record hash from event data, payloadHash, timestamp, and previousHash
+  - save the event
 - On verification:
-  - Recompute the event hash and compare against persisted hash.
-  - Confirm `previousHash` matches the predecessor record hash.
+  - walk the records in ID order
+  - confirm previousHash matches the expected predecessor
+  - recompute currentHash and compare with the stored value
+- On archival:
+  - set archived = true
+  - keep hash values unchanged
+  - exclude archived events from export results
 
 ### Persistence Layer
 
--#### `AuditEventRepository`
-- Persist audit events into H2 (development) or any supported RDBMS via JPA.
-- Support filter queries by event fields and date range.
-- Support paginated retrieval using `Pageable`.
-- Retrieve the latest event to continue the hash chain.
+#### AuditEventRepository
+Responsibilities:
+- Store audit events in a relational database through JPA.
+- Support event search and filtering by actor, resource, type, and date range.
+- Query only non-archived records for export and retention processing.
 
 ### Hashing / Verification Layer
 
-#### `HashChainService`
+#### HashService
 Responsibilities:
-- Compute SHA-256 digest for every event record.
-- Validate single event integrity.
-- Validate a segment or full event chain.
+- Compute SHA-256 digests for payloads and event records.
+- Validate integrity of the full chain.
 
 Hash algorithm:
-- Canonical input string:
-  `timestamp|eventType|actorId|resourceType|resourceId|payload|previousHash`
-- Compute digest: `SHA256(canonicalInput)`
-- Store output as lowercase hex string.
+- Payload hash: SHA-256(payloadJson)
+- Event hash canonical input:
+  eventType|actorId|resourceType|resourceId|payloadHash|eventTimestamp|previousHash
+- store the result in currentHash
 
 Verification steps:
-- Recompute hash from persisted event fields.
-- Compare recomputed value to `recordHash`.
-- For chained records, verify `previousHash` equals predecessor `recordHash`.
-- Return a verification report with any mismatch details.
+- read records in order by id
+- validate previousHash against the expected predecessor hash
+- recompute currentHash from persisted fields
+- compare with stored value
+- return a verification result with mismatch details when needed
 
-### Security & Operations
+### Retention / Compliance Layer
 
+#### RetentionPolicy
 Responsibilities:
-- Enforce append-only behavior by disallowing updates and deletes from the service API.
-- Restrict database access to the service role for insert/select only.
-- Enable monitoring, logging, and audit trail retention policies.
+- determine the cutoff point for expired events based on retention configuration
+- help scheduled and manual retention processing archive outdated records
 
-Operational controls:
-- Database trigger to block `UPDATE`/`DELETE` on `audit_event` (production).
-- Separate read-only role for query/reporting.
-- Backup and retention strategy appropriate to the deployment database (H2 for local dev, PostgreSQL for production).
-
-Future Enhancements:
-- JWT Authentication
-- Role-based access control
-- TLS termination
-- API Gateway integration
+Operational behavior:
+- retention is evaluated using eventTimestamp
+- only non-archived events are considered
+- archived events remain in the data history but are excluded from export sets
 
 ---
 
 ## Database design
 
-### Table: `audit_event`
+### Table: `audit_events`
 
-Columns (H2 development-friendly types):
-- `id` UUID PRIMARY KEY DEFAULT RANDOM_UUID()
-- `created_at` TIMESTAMP NOT NULL
-- `event_type` VARCHAR(128) NOT NULL
-- `actor_id` VARCHAR(256) NOT NULL
-- `resource_type` VARCHAR(128) NOT NULL
-- `resource_id` VARCHAR(256) NOT NULL
-- `payload` CLOB NOT NULL
-- `timestamp` TIMESTAMP NOT NULL
-- `previous_hash` CHAR(64) NOT NULL
-- `record_hash` CHAR(64) NOT NULL
-- `metadata` CLOB NULL
-- `version` BIGINT NOT NULL DEFAULT 0
-
-Field reference:
+The actual persistence model used by the service is a single table named audit_events with the following fields:
 
 | Field | Type | Description | Required |
 |---|---|---|---|
-| `id` | `UUID` | Unique audit event identifier | Yes |
-| `created_at` | `TIMESTAMP WITH TIME ZONE` | Ingest timestamp assigned by service | Yes |
-| `event_type` | `VARCHAR(128)` | Business event type | Yes |
-| `actor_id` | `VARCHAR(256)` | Actor who caused the event | Yes |
-| `resource_type` | `VARCHAR(128)` | Type of resource affected | Yes |
-| `resource_id` | `VARCHAR(256)` | Identifier of affected resource | Yes |
-| `payload` | `CLOB` | Structured event details (JSON as text) | Yes |
-| `timestamp` | `TIMESTAMP WITH TIME ZONE` | Event occurrence time | Yes |
-| `previous_hash` | `CHAR(64)` | SHA-256 hash of previous record | Yes |
-| `record_hash` | `CHAR(64)` | SHA-256 hash for this record | Yes |
-| `metadata` | `CLOB` | Optional tracing or context (JSON as text) | No |
-| `version` | `BIGINT` | Optimistic concurrency / schema evolution | Yes |
+| `id` | `BIGINT` | Auto-generated database primary key | Yes |
+| `event_type` | `VARCHAR(255)` | Event category or business action | Yes |
+| `actor_id` | `VARCHAR(255)` | User or system actor | Yes |
+| `resource_type` | `VARCHAR(255)` | Resource category | Yes |
+| `resource_id` | `VARCHAR(255)` | Target resource identifier | Yes |
+| `payload` | `TEXT` | JSON payload content | Yes |
+| `payload_hash` | `VARCHAR(255)` | SHA-256 hash of the payload JSON | Yes |
+| `redacted_fields` | `TEXT` | Comma-separated list of fields that were redacted | No |
+| `event_timestamp` | `TIMESTAMP` | When the event occurred | Yes |
+| `current_hash` | `VARCHAR(255)` | Current hash for chain integrity | Yes |
+| `previous_hash` | `VARCHAR(255)` | Hash of the preceding record | Yes |
+| `created_at` | `TIMESTAMP` | When the record was created by the service | Yes |
+| `archived` | `BOOLEAN` | Indicates whether the record is considered archived | No |
 
-Indexes:
-- `idx_audit_event_created_at` ON (`created_at`)
-- `idx_audit_event_event_type` ON (`event_type`)
-- `idx_audit_event_actor_id` ON (`actor_id`)
-- `idx_audit_event_resource_type` ON (`resource_type`)
-- `idx_audit_event_resource_id` ON (`resource_id`)
-
-Constraints:
-- Do not allow `UPDATE` or `DELETE` in regular operations.
-- Maintain chain integrity by computing hash values in the application.
-
-
-Genesis chain initialization:
-- Use a fixed genesis hash constant for the first record, such as `000...000`.
+Notes:
+- The current implementation uses H2 in-memory storage with schema generation via JPA.
+- The model is intentionally simple and append-oriented for local development and validation.
+- Archived events remain stored but are excluded from active exports.
 
 ---
 
 ## API design
 
-### POST /api/audit/events
+### POST /audit/events
 Create a new audit event.
 
-Request:
+Request example:
 ```json
 {
-  "eventType": "RECORD_UPDATED",
-  "actorId": "user-123",
+  "eventType": "USER_LOGIN",
+  "actorId": "user-101",
   "resourceType": "ACCOUNT",
-  "resourceId": "account-456",
+  "resourceId": "ACC-001",
   "payload": {
-    "field": "status",
-    "oldValue": "inactive",
-    "newValue": "active"
+    "ipAddress": "10.10.10.10",
+    "status": "SUCCESS"
   },
-  "timestamp": "2026-08-12T15:30:00Z",
-  "metadata": {
-    "correlationId": "req-789"
-  }
+  "timestamp": "2026-08-11T10:00:00Z"
 }
 ```
 
 Response:
-- `201 Created`
-- `Location: /api/audit/events/{id}`
-- Body:
-```json
-{
-  "id": "uuid",
-  "createdAt": "2026-08-12T15:30:00Z",
-  "eventType": "RECORD_UPDATED",
-  "actorId": "user-123",
-  "resourceType": "ACCOUNT",
-  "resourceId": "account-456",
-  "payload": { ... },
-  "timestamp": "2026-08-12T15:30:00Z",
-  "previousHash": "000...000",
-  "recordHash": "abcdef...",
-  "version": 0
-}
-```
+- `200 OK`
+- Body is an `AuditEventResponse` containing the created event plus hash data.
 
-### GET /api/audit/events
-Query audit events with filters and pagination.
+### GET /audit/events
+Search events by filter and pagination.
 
 Query parameters:
-- `eventType` (optional)
 - `actorId` (optional)
 - `resourceType` (optional)
 - `resourceId` (optional)
+- `eventType` (optional)
 - `from` (optional ISO-8601 timestamp)
 - `to` (optional ISO-8601 timestamp)
-- `page` (optional, default 0)
-- `size` (optional, default 20)
-- `sort` (optional, default `createdAt,desc`)
+- `page` (optional)
+- `size` (optional)
+- `sort` (optional)
 
 Response:
 - `200 OK`
-- Headers:
-  - `X-Total-Count`
-  - `X-Total-Pages`
-  - `X-Page-Number`
-  - `X-Page-Size`
-- Body:
-```json
-{
-  "page": 0,
-  "size": 20,
-  "totalElements": 1234,
-  "totalPages": 62,
-  "events": [
-    {
-      "id": "uuid",
-      "createdAt": "2026-08-12T15:30:00Z",
-      "eventType": "RECORD_UPDATED",
-      "actorId": "user-123",
-      "resourceType": "ACCOUNT",
-      "resourceId": "account-456",
-      "payload": { ... },
-      "timestamp": "2026-08-12T15:30:00Z",
-      "previousHash": "...",
-      "recordHash": "..."
-    }
-  ]
-}
-```
+- Spring Page payload containing event responses and metadata.
 
-### GET /api/audit/events/{eventId}
-Retrieve a single event by ID.
+### GET /audit/verify
+Validate the full hash chain.
 
 Response:
 - `200 OK`
-- Body includes all persisted fields and hash chain values.
+- Returns a VerifyResponse with a boolean valid flag, mismatch location, and message.
 
-### GET /api/audit/events/{eventId}/verify
-Verify a single event.
+### POST /audit/events/{id}/redact
+Redact selected fields in the payload.
+
+Request example:
+```json
+{
+  "fields": ["ipAddress", "ssn"]
+}
+```
 
 Response:
 - `200 OK`
-- Body:
-```json
-{
-  "eventId": "uuid",
-  "isValid": true,
-  "expectedHash": "abcdef...",
-  "actualHash": "abcdef...",
-  "previousHashMatches": true,
-  "message": "Event integrity verified"
-}
-```
+- Updated event response with the redacted field list.
 
-### GET /api/audit/events/verify-chain
-Verify chain integrity for a range of events.
-
-Query parameters:
-- `fromId` (optional)
-- `toId` (optional)
-- `limit` (optional, default 1000)
+### POST /audit/events/{id}/archive
+Archive a single event.
 
 Response:
 - `200 OK`
-- Body:
-```json
-{
-  "chainVerified": true,
-  "checkedCount": 100,
-  "firstVerifiedId": "uuid",
-  "lastVerifiedId": "uuid",
-  "errors": []
-}
-```
+- Updated event response with archived = true.
 
-If mismatch found:
-```json
-{
-  "chainVerified": false,
-  "checkedCount": 45,
-  "errors": [
-    {
-      "eventId": "uuid",
-      "problem": "Record hash mismatch",
-      "expectedHash": "...",
-      "actualHash": "..."
-    }
-  ]
-}
-```
+### POST /audit/retention/archive
+Manually archive expired events.
+
+Response:
+- `200 OK`
+- Returns the count of archived records.
+
+### GET /audit/exports/actor/{actorId}
+Export non-archived events for a specific actor.
+
+### GET /audit/exports/resource/{resourceId}
+Export non-archived events for a specific resource.
 
 ---
 
 ## Verification workflow
 
-1. Load the requested record or chain segment in creation order.
-2. For each record:
-   - Build the canonical input from `timestamp`, `eventType`, `actorId`, `resourceType`, `resourceId`, `payload`, and `previousHash`.
-   - Compute SHA-256 and compare to `recordHash`.
-   - Confirm `previousHash` matches the prior record's `recordHash`.
-3. Return a report with validation status and any discrepancies.
+1. Read the event records in ascending ID order.
+2. Validate that the previousHash matches the prior currentHash or the genesis value.
+3. Recompute the currentHash using the persisted event fields and payloadHash.
+4. Compare the recomputed value with the stored currentHash.
+5. Return the verification status and any mismatch details.
 
 Notes:
-- Use canonical JSON serialization for `payload`.
-- Store timestamps in UTC.
-- Use a fixed genesis hash constant for the first chain record.
+- Hashes are computed for integrity validation, not for data mutation.
+- Archived records are excluded from export bundles but remain in the underlying audit history.
+- The service stores payloadHash separately to make payload tampering detectable while preserving a clean event record model.
 
 ---
 
 ## Deployment considerations
 
-- Deploy the Spring Boot app behind an API gateway.
-- Use connection pooling for PostgreSQL.
-- Configure database backups and secure access.
-- Use read-only replicas for analytic query load if needed.
-- Apply API security and audit logging for the service.
+- Keep the H2 configuration for local development and testing.
+- Move to a production-grade relational database when required by scale or compliance needs.
+- Use Spring Scheduling with retention policy configuration for periodic archival.
+- Review access control and retention policies for operational compliance.
+- Keep the hash verification path enabled whenever audit records are accessed or exported.

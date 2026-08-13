@@ -1,24 +1,28 @@
-# audit-log-service
-
 # Schwab Audit Log Service
 
 ## Overview
 
-This project implements a tamper-evident audit log service using Java 17, Spring Boot, H2 Database, and SHA-256 hash chaining.
+This project implements a tamper-evident audit log service using Java 17, Spring Boot, H2, and SHA-256 hash chaining.
 
-The current implementation uses H2 for rapid local development and testing. The persistence layer is designed to support migration to PostgreSQL with minimal configuration changes.
+The service supports:
+- creating audit events
+- searching/filtering audit events
+- verifying the full hash chain
+- redacting sensitive payload fields
+- archiving individual or expired events
+- exporting non-archived events by actor or resource
 
-The service records audit events in append-only format and exposes APIs to create, search, and verify audit records.
+The current implementation uses H2 for rapid local development and testing. The persistence layer is designed to remain adaptable for a production database if needed.
 
 ## Architecture
 
-Components:
+Key components:
 
-- REST Controller
-- Audit Event Service
-- Hash Service
-- H2 Database (development) / PostgreSQL (production)
-- Spring Data JPA Repository
+- REST controller for audit endpoints
+- Service layer for creation, verification, redaction, retention, and export logic
+- JPA repository for persistence
+- Hash service for payload and record integrity checks
+- Retention policy for scheduled and manual archival
 
 ## Hash Chain Design
 
@@ -26,33 +30,84 @@ Each audit record stores:
 
 - currentHash
 - previousHash
+- payloadHash
 
-The current hash is calculated using:
+A record hash is derived from the event metadata and payload hash, using the previous hash in the chain. If a previous record is modified or tampered with, the verification process detects the mismatch.
 
-eventType, actorId, resourceType, resourceId, payload, timestamp, previousHash
+## API Summary
 
-If any old record is modified, hash verification fails.
-
-## APIs
-
-### Create Event
+### Create event
 
 POST /audit/events
 
-### Search Events
+Example:
+```bash
+curl -X POST http://localhost:8080/audit/events \
+  -H "Content-Type: application/json" \
+  -d '{
+    "eventType": "USER_LOGIN",
+    "actorId": "user-101",
+    "resourceType": "ACCOUNT",
+    "resourceId": "ACC-001",
+    "payload": {
+      "ipAddress": "10.10.10.10",
+      "status": "SUCCESS"
+    },
+    "timestamp": "2026-08-11T10:00:00Z"
+  }'
+```
+
+### Search events
 
 GET /audit/events?actorId=user-101&page=0&size=10
 
-### Verify Chain
+### Verify chain
 
 GET /audit/verify
 
+### Redact fields
+
+POST /audit/events/{id}/redact
+
+### Archive single event
+
+POST /audit/events/{id}/archive
+
+### Archive expired events
+
+POST /audit/retention/archive
+
+### Export by actor
+
+GET /audit/exports/actor/{actorId}
+
+### Export by resource
+
+GET /audit/exports/resource/{resourceId}
+
 ## Run Locally
 
-### Start Application
+### Start application
 
 ```bash
 mvn spring-boot:run
-
-# Open the H2 console at: http://localhost:8080/h2-console
 ```
+
+### H2 console
+
+Open:
+```text
+http://localhost:8080/h2-console
+```
+
+### Run tests
+
+```bash
+mvn test
+```
+
+## Notes
+
+- Archived records are retained in storage but excluded from active export results.
+- Hash verification is preserved even when records are archived or redacted.
+- The current version is configured for local H2 development and is suitable for iterative validation and demos.
